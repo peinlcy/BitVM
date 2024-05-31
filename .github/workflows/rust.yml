@@ -1,0 +1,21 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+      
+  build_fmt_clippy_check:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose
+    - name: Fmt
+      run: cargo fmt --all -- --check
+    - name: Clippy
+      run: cargo clippy --all-targets --all-features
