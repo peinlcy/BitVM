@@ -1,4 +1,4 @@
-use crate::treepp::{pushable, script, Script};
+use crate::treepp::{script, Script};
 use bitcoin::{opcodes::all::*, Opcode};
 
 // helper functions used on the rest of the u4 code
@@ -130,22 +130,15 @@ impl CalculateOffset for i32 {
                 panic!("unexpected opcode: {:?}", element);
             }
         }
-
-        let mut s = Script::new();
-        s.push_opcode(element);
-        s
+        
+        Script::new("").push_opcode(element)
     }
 }
 #[cfg(test)]
 mod tests {
 
-    use crate::{
-        execute_script,
-        treepp::{pushable, script},
-    };
-
+    use crate::treepp::{execute_script, script};
     use crate::u4::u4_std::u4_number_to_nibble;
-
     use super::{u4_hex_to_nibbles, u4_repeat_number};
 
     #[test]

@@ -13,6 +13,8 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+# Ignore .env files
+.env
 
 # Added by cargo
 
@@ -20,3 +22,10 @@ Cargo.lock
 
 .idea
 .vscode
+
+.DS_Store
+
+tmp
+
+# Bridge public and private files
+bridge_data/

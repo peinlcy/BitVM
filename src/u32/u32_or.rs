@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::treepp::{pushable, script, Script};
+use crate::treepp::{script, Script};
 use crate::u32::u32_zip::u32_copy_zip;
 
 /// Bitwise OR of two u8 elements.
@@ -70,7 +70,7 @@ pub fn u8_or(i: u32) -> Script {
         OP_OVER
         OP_ADD
         OP_ADD
-    }
+    }.add_stack_hint(-(i as i32 + 256), -1)
 }
 
 /// Bitwise OR of two u32 elements.
@@ -105,7 +105,7 @@ pub fn u32_or(a: u32, b: u32, stack_size: u32) -> Script {
 #[cfg(test)]
 mod tests {
 
-    use crate::treepp::pushable;
+    use crate::run;
     use crate::treepp::{execute_script, script};
     use crate::u32::u32_or::*;
     use crate::u32::u32_std::*;
@@ -133,8 +133,7 @@ mod tests {
                 {u8_drop_xor_table()}
                 OP_FROMALTSTACK
             };
-            let res = execute_script(exec_script);
-            assert!(res.success);
+            run(exec_script);
         }
     }
 }

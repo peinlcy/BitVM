@@ -2,7 +2,7 @@
 
 use crate::pseudo::{push_to_stack, OP_256MUL, OP_4DUP};
 
-use crate::treepp::{pushable, script, Script};
+use crate::treepp::{script, Script};
 
 /// Pushes a value as u32 element onto the stack
 pub fn u32_push(value: u32) -> Script {
@@ -163,7 +163,8 @@ pub fn u32_compress() -> Script {
 #[cfg(test)]
 mod test {
 
-    use crate::treepp::{execute_script, script};
+    use crate::run;
+    use crate::treepp::script;
     use crate::u32::u32_std::*;
     use rand::Rng;
 
@@ -180,8 +181,7 @@ mod test {
             0x01
             OP_EQUAL
         };
-
-        assert!(execute_script(script).success)
+        run(script);
     }
 
     #[test]
@@ -208,8 +208,7 @@ mod test {
 
             };
 
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 }

@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use crate::pseudo::push_to_stack;
-use crate::treepp::{pushable, script, Script};
+use crate::treepp::{script, Script};
 use crate::u32::u32_std::{u32_equalverify, u32_roll};
 use crate::u32::{
     u32_add::u32_add,
@@ -264,35 +264,15 @@ pub fn blake3() -> Script {
 }
 
 pub fn blake3_var_length(num_bytes: usize) -> Script {
-    assert!(num_bytes <= 512,
-            "This blake3 implementation does not support input larger than 512 bytes due to stack limit. \
-            Please modify the hashing routine to avoid calling blake3 in this way.");
+    //assert!(num_bytes <= 512,
+    //"This blake3 implementation does not support input larger than 512 bytes due to stack limit. \
+    //Please modify the hashing routine to avoid calling blake3 in this way.");
 
-    // compute how many padding elements are needed
+    // Compute how many padding elements are needed
     let num_blocks = (num_bytes + 64 - 1) / 64;
     let num_padding_bytes = num_blocks * 64 - num_bytes;
 
-    // adding the padding
-    let mut script_bytes = vec![];
-
-    script_bytes.extend_from_slice(push_to_stack(0, num_padding_bytes).as_bytes());
-
-    // if padded, move all the bytes down
-    if num_padding_bytes != 0 {
-        script_bytes.extend_from_slice(
-            script! {
-                for _ in 0..num_bytes {
-                    { num_bytes + num_padding_bytes - 1 } OP_ROLL
-                }
-            }
-            .as_bytes(),
-        );
-    }
-
-    // Initialize the lookup table
-    script_bytes.extend_from_slice(u8_push_xor_table().as_bytes());
-
-    // Push the initial Blake3 state onto the stack
+    // Calculate the initial state
     let first_block_flag = if num_bytes <= 64 {
         0b00001011
     } else {
@@ -320,14 +300,7 @@ pub fn blake3_var_length(num_bytes: usize) -> Script {
         state.reverse();
         state.iter().map(|x| u32_push(*x)).collect::<Vec<_>>()
     };
-    script_bytes.extend_from_slice(
-        script! {
-            { init_state }
-        }
-        .as_bytes(),
-    );
 
-    // reset the pointer system
     let mut env = ptr_init();
 
     // store the compression script for reuse
@@ -352,57 +325,79 @@ pub fn blake3_var_length(num_bytes: usize) -> Script {
         }
     };
 
-    // call the compression function
-    script_bytes.extend_from_slice(compression_script.as_bytes());
+    let script = script! {
+        // Add the padding
+        { push_to_stack(0, num_padding_bytes) }
 
-    // for the rest of the blocks
-    let mut num_bytes = num_bytes;
-    for i in 1..num_blocks {
-        num_bytes -= 64;
-
-        let block_flag = if i == num_blocks - 1 { 0b00001010 } else { 0 };
-
-        let state_add = {
-            let mut state = [
-                IV[0],
-                IV[1],
-                IV[2],
-                IV[3],
-                0,
-                0,
-                core::cmp::min(num_bytes as u32, 64),
-                block_flag,
-            ];
-            state.reverse();
-            state.iter().map(|x| u32_push(*x)).collect::<Vec<_>>()
-        };
-
-        script_bytes.extend_from_slice(
-            script! {
-                { state_add }
-                for _ in 0..8 {
-                    {u32_fromaltstack()}
-                }
-                for i in 1..8 {
-                    {u32_roll(i)}
-                }
-                {compression_script.clone()}
-            }
-            .as_bytes(),
-        );
-    }
-
-    script_bytes.extend_from_slice(
-        script! {
-            u8_drop_xor_table
-            for _ in 0..8 {
-                {u32_fromaltstack()}
+        // If padded, move all the bytes down
+        if num_padding_bytes != 0 {
+            for _ in 0..num_bytes {
+                { num_bytes + num_padding_bytes - 1 } OP_ROLL
             }
         }
-        .as_bytes(),
-    );
 
-    Script::from(script_bytes)
+        // Initialize the lookup table
+        u8_push_xor_table
+
+        // Push the initial Blake3 state onto the stack
+        { init_state }
+
+        // Call compression function initially
+        { compression_script.clone() }
+
+        // Variable script for the rest of the blocks
+        // TODO: This is very ugly and can likely be improved by creating an iterator of num_bytes
+        // beforehand and getting the next value (num_bytes - 64) from it.
+        // By doing so we can get rid of the closure.
+        { (| num_bytes | {
+            let mut sub_script = script! {};
+            let mut num_bytes = num_bytes;
+            for i in 1..num_blocks {
+                num_bytes -= 64;
+
+                let block_flag = if i == num_blocks - 1 { 0b00001010 } else { 0 };
+
+                let state_add = {
+                    let mut state = [
+                        IV[0],
+                        IV[1],
+                        IV[2],
+                        IV[3],
+                        0,
+                        0,
+                        core::cmp::min(num_bytes as u32, 64),
+                        block_flag,
+                    ];
+                    state.reverse();
+                    state.iter().map(|x| u32_push(*x)).collect::<Vec<_>>()
+                };
+
+                sub_script = script! {
+                    { sub_script }
+                    { script! {
+                            { state_add }
+                            for _ in 0..8 {
+                                {u32_fromaltstack()}
+                            }
+                            for i in 1..8 {
+                                {u32_roll(i)}
+                            }
+                            {compression_script.clone()}
+                        }
+                    }
+                }
+            }
+            sub_script
+            })(num_bytes)
+        }
+
+        u8_drop_xor_table
+        for _ in 0..8 {
+            u32_fromaltstack
+        }
+    };
+
+    script.add_stack_hint(-(num_bytes as i32), 32i32 - num_bytes as i32)
 }
 
 /// Blake3 taking a 40-byte message and returning a 20-byte digest
@@ -443,6 +438,18 @@ pub fn blake3_160() -> Script {
             {u32_fromaltstack()}
         }
     }
+    .add_stack_hint(-40, -20)
+}
+
+pub fn blake3_160_var_length(num_bytes: usize) -> Script {
+    script! {
+        { blake3_var_length( num_bytes ) }
+        // Reduce the digest's length to 20 bytes
+        for _ in 0..6 {
+            OP_2DROP
+        }
+    }
+    .add_stack_hint(-(num_bytes as i32), 20i32 - num_bytes as i32)
 }
 
 pub fn push_bytes_hex(hex: &str) -> Script {
@@ -491,7 +498,11 @@ pub fn blake3_160_hash_equalverify() -> Script {
 
 #[cfg(test)]
 mod tests {
+    use blake3::Hasher;
+    use hex::encode;
+
     use crate::hash::blake3::*;
+    use crate::{execute_script_as_chunks, execute_script_without_stack_limit, run};
 
     use crate::treepp::{execute_script, script};
 
@@ -533,7 +544,7 @@ mod tests {
         let hex_out = "86ca95aefdee3d969af9bcc78b48a5c1115be5d66cafc2fc106bbd982d820e70";
 
         let script = script! {
-            for _ in 0..16{
+            for _ in 0..16 {
                 {u32_push(1)}
             }
             blake3
@@ -541,8 +552,9 @@ mod tests {
             {blake3_hash_equalverify()}
             OP_TRUE
         };
-        let res = execute_script(script);
-        assert!(res.success);
+        let stack = script.clone().analyze_stack();
+        println!("stack: {:?}", stack);
+        run(script);
     }
 
     #[test]
@@ -560,8 +572,7 @@ mod tests {
         };
         println!("Blake3_var_length_60 size: {:?} \n", script.len());
 
-        let res = execute_script(script);
-        assert!(res.success);
+        run(script);
     }
 
     #[test]
@@ -578,8 +589,54 @@ mod tests {
             OP_TRUE
         };
         println!("Blake3 size: {:?} \n", script.len());
-        let res = execute_script(script);
+        run(script);
+    }
 
-        assert!(res.success);
+    #[test]
+    fn test_blake3_160_var_length() {
+        let hex_out = "11b4167bd0184b9fc8b3474a4c29d08e801cbc15";
+
+        let script = script! {
+            for _ in 0..15 {
+                {u32_push(1)}
+            }
+            { blake3_160_var_length(60) }
+            { push_bytes_hex(hex_out) }
+            { blake3_160_hash_equalverify() }
+            OP_TRUE
+        };
+        println!("Blake3_160_var_length_60 size: {:?} \n", script.len());
+
+        run(script);
+    }
+
+    #[test]
+    fn test_blake3_160_var_length_max() {
+        let mut input_data = Vec::new();
+        for _ in 0..256 {
+            input_data.extend_from_slice(&1u32.to_le_bytes());
+        }
+
+        let mut hasher = Hasher::new();
+        hasher.update(&input_data);
+        let hash = hasher.finalize();
+
+        let truncated_hash = &hash.as_bytes()[..20];
+        let hex_out = encode(truncated_hash);
+
+        // Print the generated hex_out for verification (optional)
+        println!("Computed hex_out: {}", hex_out);
+
+        let script = script! {
+            for _ in 0..256 {
+                {u32_push(1)}
+            }
+            { blake3_160_var_length(1024) }
+            { push_bytes_hex(&hex_out) }
+            { blake3_160_hash_equalverify() }
+            OP_TRUE
+        };
+        println!("Blake3_160_var_length_640 size: {:?} \n", script.len());
+        run(script);
     }
 }

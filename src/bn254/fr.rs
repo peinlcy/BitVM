@@ -6,9 +6,19 @@ impl Fp254Impl for Fr {
     const MODULUS: &'static str =
         "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001";
 
+    // 2²⁶¹ mod p  <=>  0xdc83629563d44755301fa84819caa8075bba827a494b01a2fd4e1568fffff57
+    const MONTGOMERY_ONE: &'static str =
+        "dc83629563d44755301fa84819caa8075bba827a494b01a2fd4e1568fffff57";
+
+    // p = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
     const MODULUS_LIMBS: [u32; Self::N_LIMBS as usize] = [
-        0x30000001, 0x0F87D64F, 0x1B970914, 0x0CFA121E, 0x01585D28, 0x0116DA06, 0x1A029B85,
-        0x139CB84C, 0x3064,
+        0x10000001, 0x1f0fac9f, 0xe5c2450, 0x7d090f3, 0x1585d283, 0x2db40c0, 0xa6e141, 0xe5c2634,
+        0x30644e,
+    ];
+    // inv₂₆₁ p  <=>  0xd8c07d0e2f27cbe4d1c6567d766f9dc6e9a7979b4b396ee4c3d1e0a6c10000001
+    const MODULUS_INV_261: [u32; Self::N_LIMBS as usize] = [
+        0x10000001, 0x8f05360, 0x5bb930f, 0x12f36967, 0x1dc6e9a7, 0x13ebb37c, 0x19347195,
+        0x1c5e4f97, 0xd8c07d0,
     ];
 
     const P_PLUS_ONE_DIV2: &'static str =
@@ -24,9 +34,10 @@ impl Fp254Impl for Fr {
 
 #[cfg(test)]
 mod test {
-    use crate::bn254::fp254impl::Fp254Impl;
     use crate::bn254::fr::Fr;
     use crate::treepp::*;
+    use crate::{bn254::fp254impl::Fp254Impl, run_as_chunks};
+    use ark_ff::AdditiveGroup;
     use ark_ff::{BigInteger, Field, PrimeField};
     use ark_std::UniformRand;
     use core::ops::{Add, Mul, Rem, Sub};
@@ -34,6 +45,22 @@ mod test {
     use num_traits::Num;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
+
+    #[test]
+    fn test_decode_montgomery() {
+        println!(
+            "Fr.decode_montgomery: {} bytes",
+            Fr::decode_montgomery().len()
+        );
+        let script = script! {
+            { Fr::push_one() }
+            { Fr::push_u32_le(&BigUint::from_str_radix(Fr::MONTGOMERY_ONE, 16).unwrap().to_u32_digits()) }
+            { Fr::decode_montgomery() }
+            { Fr::equalverify(1, 0) }
+            OP_TRUE
+        };
+        run(script);
+    }
 
     #[test]
     fn test_add() {
@@ -59,8 +86,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -88,9 +114,34 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
+    }
+
+    #[test]
+    fn test_sub_as_chunks_fr() {
+        println!("Fr.sub: {} bytes", Fr::sub(0, 1).len());
+
+        let m = BigUint::from_str_radix(Fr::MODULUS, 16).unwrap();
+
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+
+        let a: BigUint = prng.sample(RandomBits::new(254));
+        let b: BigUint = prng.sample(RandomBits::new(254));
+
+        let a = a.rem(&m);
+        let b = b.rem(&m);
+        let c: BigUint = a.clone().add(&m).sub(b.clone()).rem(&m);
+
+        let script = script! {
+            { Fr::push_u32_le(&a.to_u32_digits()) }
+            { Fr::push_u32_le(&b.to_u32_digits()) }
+            { Fr::sub(1, 0) }
+            { Fr::push_u32_le(&c.to_u32_digits()) }
+            { Fr::equalverify(1, 0) }
+            OP_TRUE
+        };
+        run_as_chunks(script, 100, 19)
     }
 
     #[test]
@@ -111,8 +162,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -137,8 +187,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -148,7 +197,7 @@ mod test {
         let m = BigUint::from_str_radix(Fr::MODULUS, 16).unwrap();
 
         let mut prng = ChaCha20Rng::seed_from_u64(0);
-        for _ in 0..3 {
+        for _ in 0..10 {
             let a: BigUint = prng.sample(RandomBits::new(254));
 
             let a = a.rem(&m);
@@ -161,8 +210,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -171,7 +219,7 @@ mod test {
         println!("Fr.neg: {} bytes", Fr::neg(0).len());
         let mut prng = ChaCha20Rng::seed_from_u64(0);
 
-        for _ in 0..3 {
+        for _ in 0..10 {
             let a: BigUint = prng.sample(RandomBits::new(254));
 
             let script = script! {
@@ -183,8 +231,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -204,8 +251,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -214,7 +260,7 @@ mod test {
         println!("Fr.div2: {} bytes", Fr::div2().len());
         let mut prng = ChaCha20Rng::seed_from_u64(0);
 
-        for _ in 0..1 {
+        for _ in 0..10 {
             let a = ark_bn254::Fr::rand(&mut prng);
             let c = a.double();
 
@@ -225,8 +271,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -247,13 +292,32 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
     #[test]
+    fn test_is_one() {
+        println!("Fr.is_one: {} bytes", Fr::is_one(0).len());
+        println!(
+            "Fr.is_one_keep_element: {} bytes",
+            Fr::is_one_keep_element(0).len()
+        );
+        let script = script! {
+            { Fr::push_one() }
+            { Fr::is_one_keep_element(0) }
+            OP_TOALTSTACK
+            { Fr::is_one(0) }
+            OP_FROMALTSTACK
+            OP_BOOLAND
+        };
+        let exec_result = execute_script(script);
+        assert!(exec_result.success);
+    }
+
+    #[test]
     fn test_is_zero() {
+        println!("Fr.is_zero: {} bytes", Fr::is_zero(0).len());
         println!(
             "Fr.is_zero_keep_element: {} bytes",
             Fr::is_zero_keep_element(0).len()
@@ -287,9 +351,11 @@ mod test {
                 OP_FROMALTSTACK
                 OP_FROMALTSTACK
                 OP_BOOLAND
+                { Fr::push_zero() }
+                { Fr::is_zero(0) }
+                OP_BOOLAND
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -320,8 +386,7 @@ mod test {
                 { Fr::equalverify(1, 0) }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
     }
 
@@ -340,28 +405,23 @@ mod test {
                 { Fr::push_u32_le(&a.to_u32_digits()) }
                 { Fr::is_field() }
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+            run(script);
         }
 
-        let a: BigUint = m.clone().add(1u8);
         let script = script! {
-            { Fr::push_u32_le(&a.to_u32_digits()) }
+            { Fr::push_modulus() } OP_1 OP_ADD
             { Fr::is_field() }
             OP_NOT
         };
-        let exec_result = execute_script(script);
-        assert!(exec_result.success);
+        run(script);
 
-        let a: BigUint = m.sub(1u8);
         let script = script! {
-            { Fr::push_u32_le(&a.to_u32_digits()) }
+            { Fr::push_modulus() } OP_1 OP_SUB
             OP_NEGATE
             { Fr::is_field() }
             OP_NOT
         };
-        let exec_result = execute_script(script);
-        assert!(exec_result.success);
+        run(script);
     }
 
     #[test]
@@ -386,8 +446,7 @@ mod test {
                 }
                 OP_TRUE
             };
-            let exec_result = execute_script(script);
-            assert!(exec_result.success);
+        run(script);
         }
     }
 }

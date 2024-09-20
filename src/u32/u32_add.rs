@@ -1,4 +1,4 @@
-use crate::treepp::{pushable, script, Script};
+use crate::treepp::{script, Script};
 use crate::u32::u32_zip::{u32_copy_zip, u32_zip};
 
 pub fn u8_add_carry() -> Script {
@@ -104,7 +104,8 @@ pub fn u32_add_drop(a: u32, b: u32) -> Script {
 
 #[cfg(test)]
 mod test {
-    use crate::treepp::{execute_script, script};
+    use crate::run;
+    use crate::treepp::script;
     use crate::u32::u32_add::*;
     use crate::u32::u32_std::u32_push;
 
@@ -122,7 +123,6 @@ mod test {
             0xee OP_EQUALVERIFY
             0xee OP_EQUAL
         };
-        let exec_result = execute_script(script);
-        assert!(exec_result.success)
+        run(script);
     }
 }
